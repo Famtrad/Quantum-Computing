@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Workslop — X Mentions Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --positive: #3fb950;
+    --neutral: #8b949e;
+    --negative: #f85149;
+    --engagement: #d2a8ff;
+    --likes: #ff7b72;
+    --reposts: #79c0ff;
+    --replies: #56d364;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+  header { padding: 24px 32px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  header h1 { font-size: 1.25rem; font-weight: 600; color: var(--text); }
+  header h1 span { color: var(--accent); }
+  .subtitle { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .date-range-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .date-range-bar label { font-size: 0.78rem; color: var(--muted); }
+  .date-range-bar input[type=date] {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 5px 10px; font-size: 0.8rem; outline: none; cursor: pointer;
+  }
+  .date-range-bar input[type=date]:focus { border-color: var(--accent); }
+  .btn-reset {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); padding: 5px 12px; font-size: 0.78rem; cursor: pointer; transition: all .15s;
+  }
+  .btn-reset:hover { border-color: var(--accent); color: var(--accent); }
+  .quick-btns { display: flex; gap: 6px; }
+  .qbtn {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); padding: 4px 10px; font-size: 0.75rem; cursor: pointer; transition: all .15s;
+  }
+  .qbtn:hover, .qbtn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { padding: 24px 32px; display: flex; flex-direction: column; gap: 24px; }
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .kpi-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px; cursor: default; transition: border-color .15s;
+  }
+  .kpi-card:hover { border-color: var(--accent); }
+  .kpi-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1; }
+  .kpi-value.mentions { color: var(--accent); }
+  .kpi-value.engagement { color: var(--engagement); }
+  .kpi-value.likes { color: var(--likes); }
+  .kpi-value.reposts { color: var(--reposts); }
+  .kpi-sub { font-size: 0.72rem; color: var(--muted); margin-top: 6px; }
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px;
+  }
+  .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  .chart-title { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+  .chart-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .toggle-btn {
+    border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px;
+    font-size: 0.72rem; cursor: pointer; transition: all .15s; background: transparent;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .toggle-btn .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .toggle-btn.active { background: var(--surface2); }
+  .toggle-btn:hover { border-color: var(--accent); }
+  .bottom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  canvas { max-height: 320px; }
+  #sentimentCanvas { max-height: 260px; }
+  #countryCanvas { max-height: 280px; }
+  #languageCanvas { max-height: 280px; }
+  .tooltip-custom { pointer-events: none; }
+  @media (max-width: 900px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .bottom-row { grid-template-columns: 1fr; }
+    main { padding: 16px; }
+    header { padding: 16px; }
+  }
+  @media (max-width: 500px) {
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><span>AI Workslop</span> &mdash; X Mentions Dashboard</h1>
+    <div class="subtitle">Meltwater export &bull; Jan 14 2025 &ndash; Jan 14 2026 &bull; 54,476 mentions</div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+    <div class="date-range-bar">
+      <label>From</label>
+      <input type="date" id="dateFrom" value="2025-01-14" min="2025-01-14" max="2026-01-14">
+      <label>To</label>
+      <input type="date" id="dateTo" value="2026-01-14" min="2025-01-14" max="2026-01-14">
+      <button class="btn-reset" id="resetBtn">Reset</button>
+    </div>
+    <div class="quick-btns">
+      <button class="qbtn" data-days="30">30d</button>
+      <button class="qbtn" data-days="90">90d</button>
+      <button class="qbtn" data-days="180">180d</button>
+      <button class="qbtn active" data-days="365">1yr</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">Total Mentions</div><div class="kpi-value mentions" id="kpiMentions">0</div><div class="kpi-sub" id="kpiMentionsSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Engagement</div><div class="kpi-value engagement" id="kpiEngagement">0</div><div class="kpi-sub" id="kpiEngagementSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Likes</div><div class="kpi-value likes" id="kpiLikes">0</div><div class="kpi-sub" id="kpiLikesSub"></div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Reposts</div><div class="kpi-value reposts" id="kpiReposts">0</div><div class="kpi-sub" id="kpiRepostsSub"></div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-title">Daily Mention Volume</div>
+      <div class="chart-controls" id="timeseriesControls">
+        <button class="toggle-btn active" data-metric="mentions" style="color:#58a6ff;border-color:#58a6ff;">
+          <span class="dot" style="background:#58a6ff"></span>Mentions
+        </button>
+        <button class="toggle-btn" data-metric="engagement" style="color:#d2a8ff;border-color:#30363d;">
+          <span class="dot" style="background:#d2a8ff"></span>Engagement
+        </button>
+        <button class="toggle-btn" data-metric="likes" style="color:#ff7b72;border-color:#30363d;">
+          <span class="dot" style="background:#ff7b72"></span>Likes
+        </button>
+        <button class="toggle-btn" data-metric="reposts" style="color:#79c0ff;border-color:#30363d;">
+          <span class="dot" style="background:#79c0ff"></span>Reposts
+        </button>
+      </div>
+    </div>
+    <canvas id="timeseriesCanvas"></canvas>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-title">Sentiment Over Time</div>
+      <div class="chart-controls" id="sentimentControls">
+        <button class="toggle-btn active" data-sent="positive" style="color:#3fb950;border-color:#3fb950;"><span class="dot" style="background:#3fb950"></span>Positive</button>
+        <button class="toggle-btn active" data-sent="neutral" style="color:#8b949e;border-color:#8b949e;"><span class="dot" style="background:#8b949e"></span>Neutral</button>
+        <button class="toggle-btn active" data-sent="negative" style="color:#f85149;border-color:#f85149;"><span class="dot" style="background:#f85149"></span>Negative</button>
+      </div>
+    </div>
+    <canvas id="sentimentCanvas"></canvas>
+  </div>
+
+  <div class="bottom-row">
+    <div class="chart-card">
+      <div class="chart-header"><div class="chart-title">Top Countries</div></div>
+      <canvas id="countryCanvas"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header"><div class="chart-title">Language Distribution</div></div>
+      <canvas id="languageCanvas"></canvas>
+    </div>
+  </div>
+</main>
+
+<script>
+const RAW = {"dates": ["2025-01-14", "2025-01-15", "2025-01-16", "2025-01-17", "2025-01-18", "2025-01-19", "2025-01-20", "2025-01-21", "2025-01-22", "2025-01-23", "2025-01-24", "2025-01-25", "2025-01-26", "2025-01-27", "2025-01-28", "2025-01-29", "2025-01-30", "2025-01-31", "2025-02-01", "2025-02-02", "2025-02-03", "2025-02-04", "2025-02-05", "2025-02-06", "2025-02-07", "2025-02-08", "2025-02-09", "2025-02-10", "2025-02-11", "2025-02-12", "2025-02-13", "2025-02-14", "2025-02-15", "2025-02-16", "2025-02-17", "2025-02-18", "2025-02-19", "2025-02-20", "2025-02-21", "2025-02-22", "2025-02-23", "2025-02-24", "2025-02-25", "2025-02-26", "2025-02-27", "2025-02-28", "2025-03-01", "2025-03-02", "2025-03-03", "2025-03-04", "2025-03-05", "2025-03-06", "2025-03-07", "2025-03-08", "2025-03-09", "2025-03-10", "2025-03-11", "2025-03-12", "2025-03-13", "2025-03-14", "2025-03-15", "2025-03-16", "2025-03-17", "2025-03-18", "2025-03-19", "2025-03-20", "2025-03-21", "2025-03-22", "2025-03-23", "2025-03-24", "2025-03-25", "2025-03-26", "2025-03-27", "2025-03-28", "2025-03-29", "2025-03-30", "2025-03-31", "2025-04-01", "2025-04-02", "2025-04-03", "2025-04-04", "2025-04-05", "2025-04-06", "2025-04-07", "2025-04-08", "2025-04-09", "2025-04-10", "2025-04-11", "2025-04-12", "2025-04-13", "2025-04-14", "2025-04-15", "2025-04-16", "2025-04-17", "2025-04-18", "2025-04-19", "2025-04-20", "2025-04-21", "2025-04-22", "2025-04-23", "2025-04-24", "2025-04-25", "2025-04-26", "2025-04-27", "2025-04-28", "2025-04-29", "2025-04-30", "2025-05-01", "2025-05-02", "2025-05-03", "2025-05-04", "2025-05-05", "2025-05-06", "2025-05-07", "2025-05-08", "2025-05-09", "2025-05-10", "2025-05-11", "2025-05-12", "2025-05-13", "2025-05-14", "2025-05-15", "2025-05-16", "2025-05-17", "2025-05-18", "2025-05-19", "2025-05-20", "2025-05-21", "2025-05-22", "2025-05-23", "2025-05-24", "2025-05-25", "2025-05-26", "2025-05-27", "2025-05-28", "2025-05-29", "2025-05-30", "2025-05-31", "2025-06-01", "2025-06-02", "2025-06-03", "2025-06-04", "2025-06-05", "2025-06-06", "2025-06-07", "2025-06-08", "2025-06-09", "2025-06-10", "2025-06-11", "2025-06-12", "2025-06-13", "2025-06-14", "2025-06-15", "2025-06-16", "2025-06-17", "2025-06-18", "2025-06-19", "2025-06-20", "2025-06-21", "2025-06-22", "2025-06-23", "2025-06-24", "2025-06-25", "2025-06-26", "2025-06-27", "2025-06-28", "2025-06-29", "2025-06-30", "2025-07-01", "2025-07-02", "2025-07-03", "2025-07-04", "2025-07-05", "2025-07-06", "2025-07-07", "2025-07-08", "2025-07-09", "2025-07-10", "2025-07-11", "2025-07-12", "2025-07-13", "2025-07-14", "2025-07-15", "2025-07-16", "2025-07-17", "2025-07-18", "2025-07-19", "2025-07-20", "2025-07-21", "2025-07-22", "2025-07-23", "2025-07-24", "2025-07-25", "2025-07-26", "2025-07-27", "2025-07-28", "2025-07-29", "2025-07-30", "2025-07-31", "2025-08-01", "2025-08-02", "2025-08-03", "2025-08-04", "2025-08-05", "2025-08-06", "2025-08-07", "2025-08-08", "2025-08-09", "2025-08-10", "2025-08-11", "2025-08-12", "2025-08-13", "2025-08-14", "2025-08-15", "2025-08-16", "2025-08-17", "2025-08-18", "2025-08-19", "2025-08-20", "2025-08-21", "2025-08-22", "2025-08-23", "2025-08-24", "2025-08-25", "2025-08-26", "2025-08-27", "2025-08-28", "2025-08-29", "2025-08-30", "2025-08-31", "2025-09-01", "2025-09-02", "2025-09-03", "2025-09-04", "2025-09-05", "2025-09-06", "2025-09-07", "2025-09-08", "2025-09-09", "2025-09-10", "2025-09-11", "2025-09-12", "2025-09-13", "2025-09-14", "2025-09-15", "2025-09-16", "2025-09-17", "2025-09-18", "2025-09-19", "2025-09-20", "2025-09-21", "2025-09-22", "2025-09-23", "2025-09-24", "2025-09-25", "2025-09-26", "2025-09-27", "2025-09-28", "2025-09-29", "2025-09-30", "2025-10-01", "2025-10-02", "2025-10-03", "2025-10-04", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-08", "2025-10-09", "2025-10-10", "2025-10-11", "2025-10-12", "2025-10-13", "2025-10-14", "2025-10-15", "2025-10-16", "2025-10-17", "2025-10-18", "2025-10-19", "2025-10-20", "2025-10-21", "2025-10-22", "2025-10-23", "2025-10-24", "2025-10-25", "2025-10-26", "2025-10-27", "2025-10-28", "2025-10-29", "2025-10-30", "2025-10-31", "2025-11-01", "2025-11-02", "2025-11-03", "2025-11-04", "2025-11-05", "2025-11-06", "2025-11-07", "2025-11-08", "2025-11-09", "2025-11-10", "2025-11-11", "2025-11-12", "2025-11-13", "2025-11-14", "2025-11-15", "2025-11-16", "2025-11-17", "2025-11-18", "2025-11-19", "2025-11-20", "2025-11-21", "2025-11-22", "2025-11-23", "2025-11-24", "2025-11-25", "2025-11-26", "2025-11-27", "2025-11-28", "2025-11-29", "2025-11-30", "2025-12-01", "2025-12-02", "2025-12-03", "2025-12-04", "2025-12-05", "2025-12-06", "2025-12-07", "2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12", "2025-12-13", "2025-12-14", "2025-12-15", "2025-12-16", "2025-12-17", "2025-12-18", "2025-12-19", "2025-12-20", "2025-12-21", "2025-12-22", "2025-12-23", "2025-12-24", "2025-12-25", "2025-12-26", "2025-12-27", "2025-12-28", "2025-12-29", "2025-12-30", "2025-12-31", "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10", "2026-01-11", "2026-01-12", "2026-01-13", "2026-01-14"], "mentions": [166, 61, 24, 24, 9, 10, 11, 55, 86, 45, 37, 16, 12, 14, 33, 38, 21, 19, 9, 9, 16, 20, 18, 22, 21, 12, 13, 18, 12, 18, 13, 14, 7, 4, 11, 10, 25, 29, 174, 40, 8, 15, 17, 16, 15, 11, 9, 9, 6, 18, 31, 22, 24, 17, 11, 10, 10, 14, 55, 44, 29, 25, 31, 27, 21, 28, 41, 5, 12, 30, 19, 39, 36, 21, 13, 5, 114, 20, 16, 14, 30, 9, 13, 18, 14, 37, 22, 12, 8, 242, 230, 119, 53, 155, 44, 23, 6, 409, 315, 287, 188, 165, 247, 53, 30, 26, 20, 26, 24, 14, 5, 21, 160, 191, 213, 22, 16, 21, 40, 54, 56, 27, 53, 24, 13, 26, 41, 17, 22, 49, 29, 61, 61, 33, 33, 285, 4289, 3613, 4551, 675, 148, 129, 83, 40, 67, 51, 28, 41, 62, 59, 20, 33, 15, 38, 122, 61, 68, 67, 453, 243, 59, 49, 217, 127, 49, 29, 29, 92, 617, 117, 123, 60, 25, 156, 58, 45, 45, 61, 52, 23, 19, 146, 35, 71, 34, 35, 23, 41, 80, 48, 37, 62, 87, 99, 70, 71, 52, 43, 52, 60, 50, 53, 110, 104, 138, 69, 88, 41, 54, 50, 53, 49, 47, 126, 59, 187, 101, 139, 190, 158, 612, 806, 157, 117, 93, 388, 115, 78, 71, 38, 117, 130, 131, 103, 59, 39, 136, 105, 73, 40, 54, 76, 38, 16, 83, 64, 123, 67, 25, 46, 113, 120, 310, 819, 581, 245, 197, 200, 237, 180, 283, 209, 138, 56, 556, 1375, 1740, 663, 491, 325, 185, 229, 1033, 680, 182, 289, 185, 317, 186, 142, 143, 160, 235, 259, 98, 47, 130, 198, 222, 164, 104, 131, 111, 71, 115, 74, 232, 140, 70, 52, 112, 162, 172, 136, 73, 36, 31, 92, 221, 216, 153, 256, 180, 58, 137, 392, 412, 251, 170, 55, 38, 59, 118, 119, 565, 138, 46, 29, 80, 68, 124, 433, 151, 132, 95, 272, 128, 98, 57, 99, 342, 185, 386, 175, 81, 32, 30, 63, 88, 178, 99, 69, 54, 102, 57, 79, 78, 45, 99, 77, 52, 39, 43, 75, 96, 130], "positive": [7, 27, 12, 12, 5, 6, 6, 5, 10, 5, 5, 1, 1, 5, 6, 7, 6, 4, 3, 1, 5, 6, 1, 4, 8, 6, 2, 1, 1, 4, 2, 4, 0, 0, 1, 5, 0, 7, 9, 0, 0, 4, 2, 2, 3, 1, 3, 4, 1, 6, 9, 1, 13, 5, 8, 1, 2, 4, 7, 5, 15, 15, 4, 8, 10, 10, 1, 1, 1, 6, 6, 12, 4, 2, 9, 4, 96, 13, 7, 3, 3, 2, 2, 1, 1, 1, 4, 1, 1, 1, 3, 2, 2, 3, 2, 6, 1, 0, 4, 2, 0, 1, 1, 3, 2, 1, 2, 4, 1, 0, 0, 8, 6, 1, 9, 3, 0, 1, 0, 1, 0, 4, 3, 1, 0, 1, 4, 1, 4, 0, 1, 1, 2, 1, 0, 5, 5, 5, 1, 2, 4, 0, 2, 2, 1, 1, 2, 3, 7, 3, 1, 0, 0, 2, 5, 3, 2, 4, 3, 1, 3, 6, 12, 24, 6, 3, 1, 6, 16, 10, 53, 15, 8, 17, 12, 10, 5, 10, 5, 3, 1, 4, 9, 8, 5, 2, 2, 8, 62, 5, 3, 4, 3, 7, 3, 17, 1, 6, 7, 6, 2, 3, 4, 3, 1, 5, 6, 3, 5, 4, 1, 1, 8, 2, 4, 58, 4, 8, 8, 4, 7, 4, 13, 15, 9, 4, 2, 3, 4, 1, 10, 3, 3, 6, 3, 3, 2, 5, 3, 3, 1, 7, 1, 1, 3, 7, 9, 3, 1, 2, 2, 1, 13, 29, 19, 15, 6, 9, 41, 21, 32, 13, 10, 3, 16, 22, 24, 19, 54, 31, 6, 8, 24, 12, 4, 8, 5, 0, 2, 5, 12, 6, 5, 20, 1, 4, 27, 13, 8, 6, 14, 4, 31, 9, 4, 6, 5, 3, 4, 0, 4, 7, 5, 1, 6, 1, 1, 7, 4, 4, 5, 3, 7, 2, 3, 3, 11, 3, 4, 0, 1, 2, 3, 8, 3, 3, 1, 1, 3, 1, 2, 5, 3, 4, 8, 3, 4, 1, 2, 5, 3, 1, 4, 5, 5, 0, 3, 1, 0, 4, 6, 11, 6, 3, 0, 0, 3, 3, 5, 4, 2, 2, 1, 9, 2, 6], "neutral": [9, 15, 9, 5, 3, 2, 4, 47, 73, 38, 32, 14, 11, 9, 13, 25, 12, 10, 5, 7, 8, 10, 14, 18, 12, 2, 11, 15, 7, 13, 8, 10, 4, 4, 10, 4, 12, 19, 162, 37, 4, 9, 13, 10, 6, 7, 6, 4, 3, 9, 21, 20, 9, 8, 3, 6, 5, 6, 43, 39, 13, 10, 26, 17, 10, 16, 3, 3, 8, 16, 8, 10, 26, 19, 0, 0, 17, 7, 5, 10, 10, 5, 8, 10, 8, 33, 16, 9, 0, 237, 223, 114, 49, 147, 40, 15, 3, 406, 307, 285, 186, 161, 244, 45, 21, 17, 16, 18, 15, 12, 4, 11, 131, 171, 194, 10, 13, 18, 33, 43, 40, 11, 34, 17, 12, 15, 16, 9, 15, 38, 13, 17, 50, 24, 27, 97, 187, 135, 3921, 546, 50, 49, 63, 29, 24, 18, 14, 23, 25, 41, 12, 27, 15, 32, 41, 45, 15, 28, 441, 241, 49, 26, 183, 86, 34, 22, 24, 70, 557, 99, 55, 41, 13, 17, 16, 19, 30, 39, 19, 14, 5, 15, 14, 20, 26, 26, 16, 26, 13, 31, 21, 37, 57, 76, 48, 44, 43, 31, 35, 46, 39, 36, 90, 83, 122, 55, 61, 27, 45, 42, 45, 42, 20, 52, 17, 17, 27, 85, 136, 131, 72, 34, 53, 59, 60, 148, 71, 63, 49, 30, 91, 114, 103, 75, 45, 24, 98, 89, 61, 27, 51, 61, 27, 11, 73, 38, 37, 31, 17, 32, 99, 61, 165, 346, 317, 128, 97, 69, 99, 115, 88, 49, 76, 25, 268, 370, 728, 448, 211, 157, 117, 125, 177, 310, 112, 228, 140, 278, 145, 107, 85, 97, 92, 159, 84, 30, 87, 139, 177, 134, 73, 46, 33, 30, 93, 47, 130, 74, 48, 35, 98, 104, 127, 103, 43, 31, 21, 69, 204, 194, 128, 107, 41, 23, 92, 255, 330, 213, 144, 36, 18, 37, 82, 80, 128, 66, 32, 19, 53, 52, 94, 70, 47, 109, 76, 247, 103, 66, 40, 59, 186, 147, 373, 156, 68, 17, 21, 26, 75, 156, 84, 51, 39, 91, 46, 47, 57, 28, 80, 51, 34, 24, 31, 61, 48, 56], "negative": [150, 19, 3, 7, 1, 2, 1, 3, 3, 2, 0, 1, 0, 0, 14, 6, 3, 5, 1, 1, 3, 4, 3, 0, 1, 4, 0, 2, 4, 1, 3, 0, 3, 0, 0, 1, 13, 3, 3, 3, 4, 2, 2, 4, 6, 3, 0, 1, 2, 3, 1, 1, 2, 4, 0, 3, 3, 4, 5, 0, 1, 0, 1, 2, 1, 2, 37, 1, 3, 8, 5, 17, 6, 0, 4, 1, 1, 0, 4, 1, 17, 2, 3, 7, 5, 3, 1, 2, 7, 4, 4, 3, 2, 5, 2, 2, 2, 3, 4, 0, 2, 3, 2, 5, 7, 8, 2, 4, 8, 2, 1, 2, 23, 19, 10, 9, 3, 2, 7, 10, 16, 12, 16, 6, 1, 10, 21, 7, 3, 11, 15, 43, 9, 8, 6, 183, 4097, 3473, 629, 127, 94, 80, 18, 9, 42, 32, 12, 15, 30, 15, 7, 6, 0, 4, 76, 13, 51, 35, 9, 1, 7, 17, 22, 17, 9, 4, 4, 16, 44, 8, 15, 4, 4, 122, 30, 16, 10, 12, 28, 6, 13, 127, 12, 43, 3, 7, 5, 7, 5, 12, 13, 21, 27, 16, 19, 10, 8, 6, 10, 8, 9, 14, 16, 18, 15, 9, 21, 11, 4, 4, 7, 6, 19, 72, 38, 112, 70, 46, 46, 23, 533, 768, 91, 43, 24, 236, 42, 12, 18, 7, 16, 13, 24, 22, 11, 12, 36, 11, 9, 10, 2, 8, 10, 4, 7, 19, 77, 33, 7, 12, 12, 58, 132, 444, 245, 102, 94, 122, 97, 44, 163, 147, 52, 28, 271, 983, 987, 196, 226, 137, 62, 96, 832, 358, 65, 53, 40, 39, 39, 30, 46, 57, 138, 80, 13, 13, 16, 46, 37, 24, 17, 81, 47, 32, 18, 21, 97, 63, 18, 17, 10, 51, 40, 32, 24, 4, 9, 16, 13, 18, 20, 146, 132, 33, 42, 134, 71, 35, 22, 19, 19, 20, 33, 31, 434, 69, 13, 9, 24, 15, 28, 358, 101, 19, 11, 22, 21, 31, 15, 35, 153, 37, 9, 14, 8, 15, 6, 36, 13, 18, 9, 7, 9, 8, 11, 32, 18, 14, 14, 22, 16, 13, 11, 5, 46, 68], "engagement": [126, 512, 29, 82, 1, 4, 29, 316, 784, 159, 31, 12, 6, 15, 723, 55, 238, 153, 14, 6, 22, 19, 17, 35, 112, 13, 107, 32, 25, 57, 7, 15, 10, 5, 16, 4, 94, 79, 4382, 66, 2, 41, 15, 49, 7, 39, 6, 4, 24, 202, 551, 93, 291, 49, 5, 10, 21, 38, 469, 173, 4, 1, 42, 38, 49, 61, 245, 7, 6, 183, 115, 288, 181, 165, 38, 1, 1709, 1, 24, 24, 170, 8, 41, 10, 9, 113, 6, 28, 4, 36, 1945, 97, 14, 21, 26, 21, 7, 129, 56, 0, 8, 78, 28, 35, 88, 113, 96, 92, 41, 29, 30, 50, 2394, 229, 54, 107, 22, 9, 21, 727, 271, 31, 328, 51, 76, 46, 159, 15, 50, 703, 54, 438, 163, 41, 31, 1141, 23403, 7325, 15287, 1852, 991, 658, 264, 28, 129, 70, 16, 144, 314, 655, 13, 57, 88, 602, 796, 356, 8004, 566, 18, 3, 231, 155, 1752, 589, 138, 19, 41, 394, 3194, 340, 749, 212, 38, 688, 66, 294, 420, 514, 196, 143, 31, 521, 43, 291, 163, 146, 96, 97, 732, 249, 147, 436, 521, 545, 88, 366, 155, 186, 454, 113, 557, 107, 2338, 1874, 299, 791, 297, 144, 150, 386, 396, 77, 198, 290, 768, 221, 317, 1971, 1435, 676, 27354, 617, 787, 411, 295, 2640, 77, 510, 386, 159, 738, 665, 188, 631, 65, 61, 993, 704, 172, 188, 242, 428, 83, 213, 486, 224, 297, 91, 40, 1423, 91, 1355, 1748, 6265, 2781, 823, 1304, 304, 719, 769, 1995, 191, 519, 103, 3916, 18521, 6650, 2337, 1908, 1109, 984, 1652, 16404, 2396, 75, 663, 3664, 2650, 841, 294, 968, 1027, 773, 2092, 57, 196, 761, 1194, 1103, 472, 729, 3854, 509, 440, 604, 382, 2023, 317, 236, 285, 643, 1327, 601, 400, 474, 257, 73, 772, 7796, 563, 772, 2461, 135, 108, 1370, 2750, 1168, 10617, 714, 282, 61, 265, 682, 1258, 3457, 339, 246, 96, 253, 416, 4800, 3977, 237, 2865, 117, 1674, 318, 375, 335, 486, 5129, 491, 1395, 487, 678, 12, 44, 352, 347, 1678, 495, 173, 520, 865, 30, 47, 233, 44, 727, 304, 211, 51, 63, 198, 552, 1064], "likes": [85, 294, 20, 50, 1, 2, 23, 241, 489, 84, 15, 8, 4, 9, 499, 38, 176, 95, 10, 4, 12, 12, 9, 26, 84, 11, 62, 22, 18, 33, 4, 7, 9, 1, 10, 3, 57, 46, 1916, 48, 1, 34, 9, 36, 5, 32, 3, 3, 12, 147, 446, 74, 171, 33, 3, 3, 16, 33, 230, 101, 2, 1, 27, 26, 36, 45, 184, 4, 4, 139, 75, 186, 134, 134, 26, 0, 1212, 1, 18, 16, 102, 2, 28, 6, 7, 66, 5, 18, 4, 4, 649, 41, 8, 16, 15, 11, 5, 32, 35, 0, 4, 39, 18, 21, 65, 63, 75, 59, 20, 21, 15, 34, 1503, 141, 36, 64, 19, 4, 13, 626, 200, 17, 262, 36, 50, 33, 111, 10, 33, 486, 34, 228, 79, 24, 16, 870, 14684, 5921, 10186, 1341, 828, 271, 152, 16, 52, 40, 10, 111, 223, 199, 7, 32, 46, 251, 565, 129, 6244, 424, 10, 1, 104, 120, 1109, 346, 74, 15, 35, 206, 1767, 162, 357, 95, 29, 415, 49, 147, 235, 249, 90, 72, 16, 293, 25, 180, 86, 102, 67, 46, 534, 119, 87, 329, 314, 363, 51, 185, 88, 148, 213, 73, 296, 63, 1713, 1355, 165, 490, 102, 89, 92, 163, 168, 50, 129, 141, 525, 136, 210, 1552, 862, 357, 23326, 312, 444, 230, 143, 1720, 38, 237, 167, 88, 415, 396, 111, 304, 37, 29, 782, 276, 105, 109, 169, 172, 58, 107, 198, 119, 172, 53, 21, 1019, 70, 869, 1174, 3846, 1687, 512, 726, 223, 440, 349, 1296, 108, 336, 57, 2499, 12760, 4452, 1332, 1345, 754, 355, 1037, 12992, 1426, 43, 323, 2363, 1804, 614, 192, 563, 414, 426, 1531, 35, 115, 341, 630, 486, 191, 311, 2309, 323, 299, 332, 186, 1151, 197, 131, 178, 239, 606, 291, 238, 169, 237, 42, 397, 2012, 249, 320, 1162, 67, 64, 764, 1705, 534, 8479, 321, 164, 33, 181, 258, 635, 2228, 244, 105, 68, 140, 201, 3333, 3102, 112, 2283, 68, 912, 116, 215, 195, 262, 4415, 178, 734, 335, 243, 8, 26, 200, 149, 1076, 256, 85, 230, 381, 11, 24, 109, 27, 469, 144, 97, 38, 38, 104, 292, 611], "reposts": [17, 98, 3, 6, 0, 0, 3, 56, 95, 51, 4, 1, 1, 5, 74, 11, 11, 36, 2, 0, 8, 1, 4, 6, 10, 1, 10, 4, 5, 19, 1, 5, 0, 1, 0, 0, 16, 25, 139, 4, 0, 2, 3, 8, 1, 3, 2, 0, 2, 11, 17, 6, 82, 4, 0, 4, 4, 0, 55, 65, 0, 0, 14, 8, 6, 1, 41, 1, 0, 8, 9, 28, 15, 15, 8, 0, 109, 0, 1, 3, 15, 0, 7, 2, 0, 34, 0, 3, 0, 0, 127, 4, 2, 1, 1, 0, 0, 2, 11, 0, 2, 0, 3, 6, 0, 16, 7, 18, 10, 4, 0, 8, 352, 48, 9, 8, 0, 0, 2, 52, 17, 3, 23, 9, 6, 4, 17, 1, 10, 86, 12, 36, 26, 5, 4, 133, 7119, 1078, 4472, 319, 119, 55, 47, 4, 23, 13, 1, 10, 35, 37, 1, 19, 3, 34, 109, 31, 1457, 26, 1, 1, 14, 14, 462, 53, 6, 1, 0, 143, 762, 50, 97, 25, 0, 163, 11, 14, 26, 28, 17, 60, 2, 154, 9, 56, 6, 7, 5, 15, 60, 28, 5, 43, 47, 61, 12, 32, 7, 6, 117, 15, 38, 20, 276, 122, 59, 113, 37, 7, 41, 38, 32, 8, 49, 34, 182, 52, 11, 105, 125, 99, 2555, 50, 100, 57, 31, 491, 14, 50, 51, 8, 128, 130, 19, 61, 6, 11, 94, 92, 7, 9, 27, 51, 6, 5, 56, 27, 90, 18, 8, 94, 6, 138, 182, 758, 288, 67, 127, 28, 109, 114, 257, 21, 59, 5, 789, 2383, 897, 345, 371, 124, 100, 280, 1316, 352, 11, 73, 291, 125, 65, 11, 128, 146, 145, 306, 9, 16, 79, 141, 196, 63, 77, 492, 40, 46, 80, 42, 300, 26, 5, 26, 66, 217, 91, 52, 33, 3, 6, 61, 319, 34, 82, 269, 27, 30, 140, 526, 114, 273, 86, 7, 7, 30, 77, 85, 573, 32, 91, 9, 38, 45, 116, 615, 29, 169, 9, 291, 35, 57, 47, 43, 470, 45, 568, 22, 46, 2, 5, 39, 36, 146, 43, 19, 43, 75, 4, 8, 39, 4, 60, 9, 41, 5, 3, 20, 78, 231], "replies": [14, 101, 4, 5, 0, 2, 3, 2, 47, 12, 7, 3, 0, 1, 34, 5, 16, 15, 1, 2, 2, 5, 4, 2, 6, 1, 6, 3, 0, 4, 2, 2, 1, 1, 6, 1, 7, 4, 247, 8, 1, 4, 3, 3, 1, 1, 1, 1, 1, 9, 20, 2, 16, 9, 2, 3, 1, 4, 48, 6, 0, 0, 1, 3, 6, 15, 17, 2, 2, 10, 6, 35, 10, 12, 3, 1, 86, 0, 5, 3, 10, 5, 6, 2, 2, 6, 1, 3, 0, 31, 36, 1, 4, 4, 2, 6, 2, 93, 9, 0, 2, 14, 6, 6, 13, 13, 10, 5, 8, 3, 3, 6, 149, 15, 5, 10, 2, 5, 3, 16, 16, 5, 24, 6, 6, 7, 25, 3, 4, 66, 5, 24, 13, 7, 8, 82, 794, 83, 353, 104, 23, 24, 34, 5, 14, 11, 3, 14, 44, 175, 3, 4, 37, 25, 63, 62, 145, 56, 5, 1, 56, 18, 62, 115, 57, 1, 5, 34, 108, 41, 233, 41, 7, 40, 6, 130, 71, 183, 35, 9, 11, 28, 8, 28, 53, 21, 23, 34, 104, 47, 44, 38, 88, 48, 21, 124, 34, 23, 74, 24, 169, 14, 130, 262, 48, 125, 56, 45, 10, 78, 119, 16, 17, 54, 36, 22, 76, 65, 165, 89, 96, 41, 43, 55, 43, 164, 23, 81, 61, 39, 66, 65, 37, 70, 14, 8, 97, 92, 13, 22, 13, 60, 12, 100, 84, 23, 20, 13, 8, 198, 12, 109, 118, 287, 306, 133, 132, 35, 118, 95, 109, 35, 63, 28, 155, 509, 289, 288, 131, 181, 174, 134, 583, 202, 16, 94, 201, 167, 59, 52, 142, 94, 100, 86, 4, 14, 135, 153, 178, 96, 144, 476, 109, 56, 68, 52, 67, 28, 94, 18, 92, 78, 93, 45, 65, 12, 19, 93, 1958, 97, 110, 170, 20, 9, 133, 156, 225, 174, 185, 94, 18, 18, 99, 375, 148, 34, 30, 11, 41, 42, 92, 95, 36, 86, 18, 168, 50, 57, 52, 71, 115, 112, 16, 44, 68, 2, 7, 30, 53, 57, 53, 35, 45, 54, 10, 10, 41, 12, 104, 132, 64, 7, 9, 38, 18, 80], "countries": {"United States": 11842, "Australia": 1941, "India": 1631, "United Kingdom": 1418, "Canada": 899, "Japan": 742, "South Africa": 576, "France": 389, "Nigeria": 324, "Spain": 313, "Germany": 272, "Mexico": 207, "Italy": 190, "Brazil": 145, "Switzerland": 128}, "languages": {"English": 51669, "Japanese": 613, "Thai": 478, "French": 443, "Spanish": 394, "Polish": 120, "Hindi": 101, "Chinese (simpl.)": 87, "Portuguese": 85, "Turkish": 71}, "totals": {"mentions": 54476, "engagement": 328708, "likes": 214499, "reposts": 44806}};
+
+// --- helpers ---
+function fmt(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+
+function filterByRange(from, to) {
+  const result = { dates:[], mentions:[], positive:[], neutral:[], negative:[], engagement:[], likes:[], reposts:[], replies:[] };
+  RAW.dates.forEach((d, i) => {
+    if (d >= from && d <= to) {
+      result.dates.push(d);
+      ['mentions','positive','neutral','negative','engagement','likes','reposts','replies'].forEach(k => result[k].push(RAW[k][i]));
+    }
+  });
+  return result;
+}
+
+const COLORS = { mentions:'#58a6ff', engagement:'#d2a8ff', likes:'#ff7b72', reposts:'#79c0ff', replies:'#56d364', positive:'#3fb950', neutral:'#8b949e', negative:'#f85149' };
+
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: true,
+  plugins: { legend: { display: false }, tooltip: { backgroundColor:'#161b22', borderColor:'#30363d', borderWidth:1, titleColor:'#e6edf3', bodyColor:'#8b949e', padding:10, callbacks:{} } },
+  scales: {
+    x: { grid: { color:'#21262d' }, ticks: { color:'#8b949e', font:{size:11} } },
+    y: { grid: { color:'#21262d' }, ticks: { color:'#8b949e', font:{size:11}, callback: v => fmt(v) } }
+  }
+};
+
+// --- Time series chart ---
+let activeMetrics = new Set(['mentions']);
+let tsChart;
+
+function buildTSDatasets(filtered) {
+  return [...activeMetrics].map(m => ({
+    label: m.charAt(0).toUpperCase()+m.slice(1),
+    data: filtered.dates.map((d,i) => ({ x: d, y: filtered[m][i] })),
+    borderColor: COLORS[m],
+    backgroundColor: COLORS[m] + '22',
+    borderWidth: 2,
+    pointRadius: filtered.dates.length > 90 ? 0 : 3,
+    pointHoverRadius: 5,
+    fill: activeMetrics.size === 1,
+    tension: 0.3,
+  }));
+}
+
+function initTS(filtered) {
+  const ctx = document.getElementById('timeseriesCanvas').getContext('2d');
+  tsChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: buildTSDatasets(filtered) },
+    options: {
+      ...chartDefaults,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { type:'time', time:{ unit: filtered.dates.length > 180 ? 'month' : 'week', tooltipFormat:'MMM d, yyyy' }, grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:11}} },
+        y: { ...chartDefaults.scales.y }
+      },
+      plugins: {
+        ...chartDefaults.plugins,
+        tooltip: {
+          ...chartDefaults.plugins.tooltip,
+          callbacks: {
+            title: items => items[0].label,
+            label: item => ` ${item.dataset.label}: ${fmt(item.raw.y)}`
+          }
+        }
+      }
+    }
+  });
+}
+
+// --- Sentiment chart ---
+let sentimentChart;
+let activeSentiments = new Set(['positive','neutral','negative']);
+
+function buildSentDatasets(filtered) {
+  return ['positive','neutral','negative'].filter(s => activeSentiments.has(s)).map(s => ({
+    label: s.charAt(0).toUpperCase()+s.slice(1),
+    data: filtered.dates.map((d,i) => ({ x: d, y: filtered[s][i] })),
+    backgroundColor: COLORS[s] + 'cc',
+    borderColor: COLORS[s],
+    borderWidth: 0,
+    stack: 'sentiment',
+  }));
+}
+
+function initSentiment(filtered) {
+  const ctx = document.getElementById('sentimentCanvas').getContext('2d');
+  sentimentChart = new Chart(ctx, {
+    type: 'bar',
+    data: { datasets: buildSentDatasets(filtered) },
+    options: {
+      ...chartDefaults,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { type:'time', time:{ unit: filtered.dates.length > 180 ? 'month' : 'week', tooltipFormat:'MMM d, yyyy' }, stacked:true, grid:{color:'#21262d'}, ticks:{color:'#8b949e',font:{size:11}} },
+        y: { stacked:true, ...chartDefaults.scales.y }
+      },
+      plugins: {
+        ...chartDefaults.plugins,
+        tooltip: {
+          ...chartDefaults.plugins.tooltip,
+          callbacks: {
+            title: items => items[0].label,
+            label: item => ` ${item.dataset.label}: ${fmt(item.raw.y)}`
+          }
+        }
+      }
+    }
+  });
+}
+
+// --- Country bar chart ---
+let countryChart;
+function initCountry(countries) {
+  const labels = Object.keys(countries);
+  const values = Object.values(countries);
+  const ctx = document.getElementById('countryCanvas').getContext('2d');
+  countryChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: '#58a6ff99', borderColor:'#58a6ff', borderWidth:1, borderRadius:4 }]
+    },
+    options: {
+      ...chartDefaults,
+      indexAxis: 'y',
+      scales: {
+        x: { ...chartDefaults.scales.x, ticks: { ...chartDefaults.scales.x.ticks, callback: v => fmt(v) } },
+        y: { ...chartDefaults.scales.y, ticks: { color:'#8b949e', font:{size:11} } }
+      },
+      plugins: {
+        ...chartDefaults.plugins,
+        tooltip: {
+          ...chartDefaults.plugins.tooltip,
+          callbacks: { label: item => ` ${fmt(item.raw)} mentions` }
+        }
+      },
+      onClick: (e, elements) => {
+        if (elements.length) {
+          const country = labels[elements[0].index];
+          highlightCountry(country);
+        }
+      }
+    }
+  });
+}
+
+// --- Language donut ---
+let languageChart;
+const LANG_COLORS = ['#58a6ff','#3fb950','#d2a8ff','#ff7b72','#79c0ff','#56d364','#ffa657','#e3b341','#f0883e','#bc8cff'];
+function initLanguage(languages) {
+  const labels = Object.keys(languages);
+  const values = Object.values(languages);
+  const ctx = document.getElementById('languageCanvas').getContext('2d');
+  languageChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: LANG_COLORS, borderColor:'#161b22', borderWidth:2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { display: true, position:'right', labels:{ color:'#8b949e', font:{size:11}, boxWidth:12, padding:10 } },
+        tooltip: {
+          backgroundColor:'#161b22', borderColor:'#30363d', borderWidth:1,
+          titleColor:'#e6edf3', bodyColor:'#8b949e', padding:10,
+          callbacks: {
+            label: item => {
+              const total = item.dataset.data.reduce((a,b)=>a+b,0);
+              const pct = ((item.raw/total)*100).toFixed(1);
+              return ` ${fmt(item.raw)} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// --- Country filter highlight ---
+let countryFilter = null;
+function highlightCountry(country) {
+  if (countryFilter === country) {
+    countryFilter = null;
+    countryChart.data.datasets[0].backgroundColor = Array(Object.keys(RAW.countries).length).fill('#58a6ff99');
+    countryChart.data.datasets[0].borderColor = Array(Object.keys(RAW.countries).length).fill('#58a6ff');
+  } else {
+    countryFilter = country;
+    const labels = Object.keys(RAW.countries);
+    countryChart.data.datasets[0].backgroundColor = labels.map(l => l===country ? '#58a6ff' : '#58a6ff22');
+    countryChart.data.datasets[0].borderColor = labels.map(l => l===country ? '#58a6ff' : '#30363d');
+  }
+  countryChart.update();
+}
+
+// --- KPI update ---
+function updateKPIs(filtered) {
+  const sum = arr => arr.reduce((a,b)=>a+b,0);
+  const m = sum(filtered.mentions), e = sum(filtered.engagement), l = sum(filtered.likes), r = sum(filtered.reposts);
+  document.getElementById('kpiMentions').textContent = fmt(m);
+  document.getElementById('kpiEngagement').textContent = fmt(e);
+  document.getElementById('kpiLikes').textContent = fmt(l);
+  document.getElementById('kpiReposts').textContent = fmt(r);
+  const days = filtered.dates.length;
+  document.getElementById('kpiMentionsSub').textContent = `avg ${fmt(Math.round(m/Math.max(days,1)))} / day`;
+  document.getElementById('kpiEngagementSub').textContent = `avg ${fmt(Math.round(e/Math.max(days,1)))} / day`;
+  document.getElementById('kpiLikesSub').textContent = `avg ${fmt(Math.round(l/Math.max(days,1)))} / day`;
+  document.getElementById('kpiRepostsSub').textContent = `avg ${fmt(Math.round(r/Math.max(days,1)))} / day`;
+}
+
+// --- Full refresh ---
+function refresh() {
+  const from = document.getElementById('dateFrom').value;
+  const to = document.getElementById('dateTo').value;
+  const filtered = filterByRange(from, to);
+  updateKPIs(filtered);
+  if (tsChart) { tsChart.data.datasets = buildTSDatasets(filtered); tsChart.update(); }
+  if (sentimentChart) { sentimentChart.data.datasets = buildSentDatasets(filtered); sentimentChart.update(); }
+}
+
+// --- Init ---
+const initFiltered = filterByRange('2025-01-14', '2026-01-14');
+updateKPIs(initFiltered);
+initTS(initFiltered);
+initSentiment(initFiltered);
+initCountry(RAW.countries);
+initLanguage(RAW.languages);
+
+// --- Date range controls ---
+document.getElementById('dateFrom').addEventListener('change', () => { clearQuick(); refresh(); });
+document.getElementById('dateTo').addEventListener('change', () => { clearQuick(); refresh(); });
+document.getElementById('resetBtn').addEventListener('click', () => {
+  document.getElementById('dateFrom').value = '2025-01-14';
+  document.getElementById('dateTo').value = '2026-01-14';
+  document.querySelectorAll('.qbtn').forEach(b => b.classList.toggle('active', b.dataset.days==='365'));
+  refresh();
+});
+
+function clearQuick() { document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active')); }
+
+document.querySelectorAll('.qbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.qbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const days = parseInt(btn.dataset.days);
+    const to = new Date('2026-01-14');
+    const from = new Date(to);
+    from.setDate(from.getDate() - days + 1);
+    document.getElementById('dateTo').value = to.toISOString().slice(0,10);
+    document.getElementById('dateFrom').value = from.toISOString().slice(0,10);
+    refresh();
+  });
+});
+
+// --- Timeseries metric toggles ---
+document.querySelectorAll('#timeseriesControls .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const metric = btn.dataset.metric;
+    if (activeMetrics.has(metric)) {
+      if (activeMetrics.size === 1) return;
+      activeMetrics.delete(metric);
+      btn.classList.remove('active');
+      btn.style.borderColor = '#30363d';
+    } else {
+      activeMetrics.add(metric);
+      btn.classList.add('active');
+      btn.style.borderColor = COLORS[metric];
+    }
+    refresh();
+  });
+});
+
+// --- Sentiment toggles ---
+document.querySelectorAll('#sentimentControls .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const sent = btn.dataset.sent;
+    if (activeSentiments.has(sent)) {
+      if (activeSentiments.size === 1) return;
+      activeSentiments.delete(sent);
+      btn.classList.remove('active');
+      btn.style.borderColor = '#30363d';
+    } else {
+      activeSentiments.add(sent);
+      btn.classList.add('active');
+      btn.style.borderColor = COLORS[sent];
+    }
+    refresh();
+  });
+});
+</script>
+</body>
+</html>
